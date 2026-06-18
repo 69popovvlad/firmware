@@ -3,6 +3,11 @@
 This build adds a two-register 74HC165 keyboard to the stock Heltec V3
 Meshtastic configuration.
 
+## Hardware
+
+Schematics and PCB files:
+[heltec-v3-chatter-keyboard](https://github.com/69popovvlad/heltec-v3-chatter-keyboard).
+
 ## Connections
 
 | Signal | Heltec V3 GPIO |
