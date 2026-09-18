@@ -55,6 +55,13 @@ typedef struct _InputEvent {
     unsigned char kbchar;
     uint16_t touchX;
     uint16_t touchY;
+    // Unicode code point for text input that cannot be expressed in `kbchar`.
+    // `kbchar` is a single byte and several byte values in 0x80..0xFF are
+    // already reserved as command codes (INPUT_BROKER_MSG_*), so raw UTF-8
+    // bytes must never be sent through it - 0xD0 0x90 ("A" cyrillic) would
+    // otherwise be read as INPUT_BROKER_MSG_REBOOT. Non-ASCII keyboards set
+    // this field instead and leave `kbchar` at 0. 0 means "unused".
+    uint32_t codepoint;
 } InputEvent;
 
 class InputPollable

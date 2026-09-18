@@ -66,6 +66,23 @@ idle, both should be `0xff`. If the two bytes are reversed, uncomment
 `CUSTOM_CHATTER_SWAP_SHIFT_REGISTERS` in the custom variant's `platformio.ini`
 and rebuild.
 
+If a bit stays `0` in the idle log line, that switch (or its solder joint) is
+shorted. The scanner ignores a permanently low bit, so the rest of the keyboard
+keeps working, but that key itself will never fire again until the hardware is
+fixed.
+
+## Scanning
+
+The registers are sampled every 25 ms and a reading has to repeat twice before
+it counts, which debounces the switches. Only bits that went from released to
+pressed between two stable samples produce an event, so holding one key does not
+mask the next one and a stuck switch cannot swallow every later press.
+
+After boot, and after any reading where all sixteen inputs look pressed at once
+(a floating `DATA` line), the scanner stays quiet until it sees one clean
+"nothing pressed" sample. That stops garbage read while the 74HC165s are still
+powering up from driving the region and frequency pickers on its own.
+
 ## Mapping
 
 Physical `D0` becomes bit 7 and physical `D7` becomes bit 0 because the
@@ -89,3 +106,54 @@ Physical `D0` becomes bit 7 and physical `D7` becomes bit 0 because the
 | SR1 D5 | SW10 | key 6 |
 | SR1 D6 | SW11 | key 0 / space |
 | SR1 D7 | SW12 | shift |
+
+## Text input
+
+Text entry is T9 style: tap a key repeatedly to cycle through its characters.
+`SHIFT` (SW12) cycles the level, shown as a badge in the bottom right corner of
+the compose screen:
+
+| Badge | Level |
+| --- | --- |
+| `a` / `а` | lower case |
+| `A` / `А` | upper case |
+| `#` | digits |
+
+### Language
+
+Hold `SHIFT` (SW12) and tap the `0 / space` key (SW11) to switch the input
+language between latin and cyrillic. The badge changes to a cyrillic letter
+while cyrillic is active. The chord does not type a space and leaves the current
+shift level alone.
+
+Cyrillic layout, four taps per key:
+
+| Key | Characters |
+| --- | --- |
+| 1 | `.` `,` `?` `ё` (`!` `+` `-` `Ё` shifted) |
+| 2 | а б в г |
+| 3 | д е ж з |
+| 4 | и й к л |
+| 5 | м н о п |
+| 6 | р с т у |
+| 7 | ф х ц ч |
+| 8 | ш щ ъ ы |
+| 9 | ь э ю я |
+| 0 | space |
+
+The layout lives in `CyrillicKeyMap` in `src/input/SerialKeyboard.cpp` and is
+written as Unicode code points, so it can be edited the same way as the latin
+`KeyMap` next to it. An entry of `0` falls back to the latin table, which is how
+punctuation and space stay in place.
+
+Messages are composed and sent as UTF-8, so other Meshtastic nodes and the phone
+apps read them normally. Cyrillic is never passed through `InputEvent::kbchar`,
+because several byte values in that range are reserved commands - `0xD0 0x90`
+(`А`) would otherwise be read as "reboot".
+
+### Display
+
+`-D OLED_RU` in the variant's `platformio.ini` selects the `ArialMT_Plain_*_RU`
+fonts, which carry cyrillic glyphs. This covers both typed text and messages
+received from other nodes; latin ASCII is unaffected. Drop the flag to go back
+to latin-only rendering.

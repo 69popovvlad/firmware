@@ -403,6 +403,61 @@ static void drawWrappedEmoteText(OLEDDisplay *display, int x, int y, const char 
             ++offset;
     }
 }
+
+// Number of bytes that form the UTF-8 character ending at byte index `end` in
+// `text`. Returns 1 for plain ASCII and for anything malformed, so callers can
+// always make progress.
+static size_t utf8PrevCharLen(const String &text, unsigned int end)
+{
+    if (end == 0)
+        return 0;
+    size_t len = 1;
+    while (len < 4 && len < end && ((uint8_t)text[end - len] & 0xC0) == 0x80)
+        len++;
+    return len;
+}
+
+// Number of bytes of the UTF-8 character starting at byte index `start`.
+static size_t utf8NextCharLen(const String &text, unsigned int start)
+{
+    if (start >= text.length())
+        return 0;
+    size_t len = graphics::EmoteRenderer::utf8CharLen((uint8_t)text[start]);
+    if (len == 0 || start + len > text.length())
+        len = 1;
+    return len;
+}
+
+// Encodes a code point as UTF-8. Returns the number of bytes written to `out`,
+// which must have room for 4 bytes plus the terminator.
+static size_t utf8Encode(uint32_t codepoint, char *out)
+{
+    if (codepoint < 0x80) {
+        out[0] = (char)codepoint;
+        out[1] = 0;
+        return 1;
+    }
+    if (codepoint < 0x800) {
+        out[0] = (char)(0xC0 | (codepoint >> 6));
+        out[1] = (char)(0x80 | (codepoint & 0x3F));
+        out[2] = 0;
+        return 2;
+    }
+    if (codepoint < 0x10000) {
+        out[0] = (char)(0xE0 | (codepoint >> 12));
+        out[1] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (codepoint & 0x3F));
+        out[3] = 0;
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (codepoint >> 18));
+    out[1] = (char)(0x80 | ((codepoint >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((codepoint >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (codepoint & 0x3F));
+    out[4] = 0;
+    return 4;
+}
+
 /**
  * Main input event dispatcher for CannedMessageModule.
  * Routes keyboard/button/touch input to the correct handler based on the current runState.
@@ -460,8 +515,8 @@ int CannedMessageModule::handleInputEvent(const InputEvent *event)
             LaunchWithDestination(NODENUM_BROADCAST);
             return 1;
         }
-        // Printable char (ASCII) opens free text compose
-        if (event->kbchar >= 32 && event->kbchar <= 126) {
+        // Printable char (ASCII or a non-ASCII code point) opens free text compose
+        if ((event->kbchar >= 32 && event->kbchar <= 126) || event->codepoint >= 32) {
             updateState(CANNED_MESSAGE_RUN_STATE_FREETEXT, true);
             UIFrameEvent e;
             e.action = UIFrameEvent::Action::REGENERATE_FRAMESET;
@@ -826,6 +881,10 @@ bool CannedMessageModule::handleFreeTextInput(const InputEvent *event)
     if (runState != CANNED_MESSAGE_RUN_STATE_FREETEXT)
         return false;
 
+    // Any new key invalidates a code point left over from an earlier one, so a
+    // stale character can never be inserted by a later payload
+    payloadCodepoint = 0;
+
 #if defined(USE_VIRTUAL_KEYBOARD)
     // Cancel (dismiss freetext screen)
     if (event->inputEvent == INPUT_BROKER_LEFT) {
@@ -975,6 +1034,17 @@ bool CannedMessageModule::handleFreeTextInput(const InputEvent *event)
     // Printable ASCII (add char to draft)
     if (event->kbchar >= 32 && event->kbchar <= 126) {
         payload = event->kbchar;
+        payloadCodepoint = 0;
+        lastTouchMillis = millis();
+        runOnce();
+        return true;
+    }
+
+    // Non-ASCII character (cyrillic and friends) - carried as a code point because
+    // a raw UTF-8 byte in kbchar would collide with the INPUT_BROKER_MSG_* commands
+    if (event->codepoint >= 32) {
+        payload = 0;
+        payloadCodepoint = event->codepoint;
         lastTouchMillis = millis();
         runOnce();
         return true;
@@ -1335,12 +1405,14 @@ int32_t CannedMessageModule::runOnce()
         switch (this->payload) {
         case INPUT_BROKER_LEFT:
             if (this->runState == CANNED_MESSAGE_RUN_STATE_FREETEXT && this->cursor > 0) {
-                this->cursor--;
+                // Step over a whole character, so the caret never lands inside a
+                // multi-byte (e.g. cyrillic) sequence
+                this->cursor -= utf8PrevCharLen(this->freetext, this->cursor);
             }
             break;
         case INPUT_BROKER_RIGHT:
             if (this->runState == CANNED_MESSAGE_RUN_STATE_FREETEXT && this->cursor < this->freetext.length()) {
-                this->cursor++;
+                this->cursor += utf8NextCharLen(this->freetext, this->cursor);
             }
             break;
         default:
@@ -1352,13 +1424,16 @@ int32_t CannedMessageModule::runOnce()
             case 0x08: // backspace
                 if (this->freetext.length() > 0) {
                     if (this->cursor > 0) {
+                        // Remove one whole character, which is more than one byte for
+                        // cyrillic and any other non-ASCII text
+                        const size_t removed = utf8PrevCharLen(this->freetext, this->cursor);
                         if (this->cursor == this->freetext.length()) {
-                            this->freetext = this->freetext.substring(0, this->freetext.length() - 1);
+                            this->freetext = this->freetext.substring(0, this->freetext.length() - removed);
                         } else {
-                            this->freetext = this->freetext.substring(0, this->cursor - 1) +
+                            this->freetext = this->freetext.substring(0, this->cursor - removed) +
                                              this->freetext.substring(this->cursor, this->freetext.length());
                         }
-                        this->cursor--;
+                        this->cursor -= removed;
                     }
                 } else {
                 }
@@ -1368,24 +1443,40 @@ int32_t CannedMessageModule::runOnce()
             case INPUT_BROKER_LEFT:
             case INPUT_BROKER_RIGHT:
                 break;
-            default:
-                // Only insert ASCII printable characters (32–126)
-                if (this->payload >= 32 && this->payload <= 126) {
+            default: {
+                // ASCII printable characters (32–126), or a code point queued by a
+                // keyboard that produces non-ASCII text
+                char inserted[5] = {0};
+                size_t insertedLen = 0;
+                if (this->payloadCodepoint >= 32) {
+                    insertedLen = utf8Encode(this->payloadCodepoint, inserted);
+                } else if (this->payload >= 32 && this->payload <= 126) {
+                    inserted[0] = (char)this->payload;
+                    insertedLen = 1;
+                }
+                this->payloadCodepoint = 0;
+
+                if (insertedLen > 0) {
                     requestFocus();
                     if (this->cursor == this->freetext.length()) {
-                        this->freetext += (char)this->payload;
+                        this->freetext += inserted;
                     } else {
-                        this->freetext = this->freetext.substring(0, this->cursor) + (char)this->payload +
+                        this->freetext = this->freetext.substring(0, this->cursor) + inserted +
                                          this->freetext.substring(this->cursor);
                     }
-                    this->cursor++;
+                    this->cursor += insertedLen;
                     const uint16_t maxChars = 200 - (moduleConfig.canned_message.send_bell ? 1 : 0);
                     if (this->freetext.length() > maxChars) {
-                        this->cursor = maxChars;
-                        this->freetext = this->freetext.substring(0, maxChars);
+                        // Trim on a character boundary so we never send half a glyph
+                        unsigned int trimmed = maxChars;
+                        while (trimmed > 0 && ((uint8_t)this->freetext[trimmed] & 0xC0) == 0x80)
+                            trimmed--;
+                        this->freetext = this->freetext.substring(0, trimmed);
+                        this->cursor = trimmed;
                     }
                 }
                 break;
+            }
             }
         }
         this->lastTouchMillis = millis();
@@ -1950,6 +2041,16 @@ void CannedMessageModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *st
         {
             uint8_t mode = globalSerialKeyboard ? globalSerialKeyboard->getShift() : 0;
             const char *label = (mode == 0) ? "a" : (mode == 1) ? "A" : "#";
+#if defined(CUSTOM_CHATTER_KEYBOARD)
+            // Same badge doubles as the input-language indicator
+            if (globalSerialKeyboard && globalSerialKeyboard->getLanguage() == SerialKeyboard::KB_LANG_CYRILLIC) {
+#if defined(OLED_RU) || defined(OLED_UA)
+                label = (mode == 0) ? "а" : (mode == 1) ? "А" : "#";
+#else
+                label = (mode == 0) ? "ru" : (mode == 1) ? "RU" : "#";
+#endif
+            }
+#endif
 
             display->setFont(FONT_SMALL);
             display->setTextAlignment(TEXT_ALIGN_LEFT);

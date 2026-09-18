@@ -171,6 +171,9 @@ class CannedMessageModule : public SinglePortModule, public Observable<const UIF
     cannedMessageModuleRunState runState = CANNED_MESSAGE_RUN_STATE_INACTIVE;
     char highlight = 0x00;
     char payload = 0x00;
+    // Unicode code point queued for insertion into the draft. Used for text that
+    // does not fit in `payload`, which is a single byte (see InputEvent::codepoint).
+    uint32_t payloadCodepoint = 0;
     unsigned int cursor = 0;
     unsigned long lastTouchMillis = 0;
     uint32_t lastFilterUpdate = 0;
