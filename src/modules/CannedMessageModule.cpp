@@ -516,7 +516,8 @@ int CannedMessageModule::handleInputEvent(const InputEvent *event)
             return 1;
         }
         // Printable char (ASCII or a non-ASCII code point) opens free text compose
-        if ((event->kbchar >= 32 && event->kbchar <= 126) || event->codepoint >= 32) {
+        if ((event->kbchar >= 32 && event->kbchar <= 126) ||
+            (event->inputEvent == INPUT_BROKER_ANYKEY && event->codepoint >= 32)) {
             updateState(CANNED_MESSAGE_RUN_STATE_FREETEXT, true);
             UIFrameEvent e;
             e.action = UIFrameEvent::Action::REGENERATE_FRAMESET;
@@ -1041,8 +1042,10 @@ bool CannedMessageModule::handleFreeTextInput(const InputEvent *event)
     }
 
     // Non-ASCII character (cyrillic and friends) - carried as a code point because
-    // a raw UTF-8 byte in kbchar would collide with the INPUT_BROKER_MSG_* commands
-    if (event->codepoint >= 32) {
+    // a raw UTF-8 byte in kbchar would collide with the INPUT_BROKER_MSG_* commands.
+    // Only ANYKEY carries text: every other event leaves `codepoint` alone, and
+    // trusting it there would insert whatever the sender happened to leave in it.
+    if (event->inputEvent == INPUT_BROKER_ANYKEY && event->codepoint >= 32) {
         payload = 0;
         payloadCodepoint = event->codepoint;
         lastTouchMillis = millis();
