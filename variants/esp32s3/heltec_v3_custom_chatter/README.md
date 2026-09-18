@@ -157,6 +157,21 @@ accept `◄` / `►` as up/down on their own, but node lists and the message
 history in `Screen::handleInputEvent` scroll on `UP`/`DOWN` only, which is what
 the arrow chords are for.
 
+## Composing to a node
+
+Typing on a normal screen opens the compose screen, but it does **not** pick up
+whichever node is on screen - the destination is whatever was used last, and
+broadcast until something sets it. To address a node, either open its menu and
+choose "New Freetext Msg" / "With Freetext", or use `[Select Destination]` in
+the canned message list. `SHIFT` + `Backspace` switches destination while
+composing, and the header always shows `To: @NAME`.
+
+Those menu entries are gated on `kb_found`, which upstream only sets from the
+I2C keyboard scan and the touch keyboard. This keyboard hangs off shift
+registers and cannot be scanned for, so `SerialKeyboardImpl::init()` sets the
+flag itself - otherwise the entries never appear and the destination picker is
+the only way in.
+
 ## Text input
 
 Text entry is T9 style: tap a key repeatedly to cycle through its characters.
