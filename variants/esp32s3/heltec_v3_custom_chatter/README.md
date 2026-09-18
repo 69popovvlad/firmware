@@ -83,6 +83,35 @@ After boot, and after any reading where all sixteen inputs look pressed at once
 "nothing pressed" sample. That stops garbage read while the 74HC165s are still
 powering up from driving the region and frequency pickers on its own.
 
+## Build fails with "No module named 'SCons.Tool.FortranCommon'"
+
+Not a problem with this variant. `platform-espressif32` declares a `tool-scons`
+package that resolves to `pioarduino/registry .../scons-4.8.1.zip`, which is a
+1 KB metadata-only stub - unpacking it leaves `packages/tool-scons` holding
+nothing but `package.json` and `tools.json`. PlatformIO's own SCons
+(`scons-local-4.11.1`) installs into that same directory, so whichever install
+runs last wins. When the platform's stub install fires while a build is already
+running, SCons loses its own modules mid-flight.
+
+Fix: point the platform at the same SCons the core uses. In every
+`~/.platformio/platforms/espressif32*/platform.json`, replace the `tool-scons`
+entry with
+
+```json
+"tool-scons": {
+  "type": "tool",
+  "optional": true,
+  "owner": "platformio",
+  "package-version": "4.41101.0",
+  "version": "https://github.com/pioarduino/scons/releases/download/4.11.1/scons-local-4.11.1.tar.gz"
+}
+```
+
+then delete `~/.platformio/packages/tool-scons` so the real archive is fetched
+once. Both specs now resolve to the same installed package and the second
+install is a no-op instead of a wipe. The edit lives in a downloaded platform
+package, so redo it if the platform is reinstalled or its version is bumped.
+
 ## Mapping
 
 Physical `D0` becomes bit 7 and physical `D7` becomes bit 0 because the
