@@ -2088,7 +2088,15 @@ void CannedMessageModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *st
             display->setFont(FONT_SMALL);
             display->setTextAlignment(TEXT_ALIGN_LEFT);
 
+#if defined(CUSTOM_CHATTER_KEYBOARD)
+            // On the custom keyboard SHIFT + arrow scrolls, so the destination
+            // switch sits on SHIFT + backspace and the arrow glyph would lie.
+            const char *label = "Dest: Shift + Bksp";
+            const bool drawArrow = false;
+#else
             const char *label = "Dest: Shift + ";
+            const bool drawArrow = true;
+#endif
             int16_t labelW = display->getStringWidth(label);
 
             // triangle size visually matches glyph height, not full line height
@@ -2099,7 +2107,7 @@ void CannedMessageModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *st
             const int16_t padY = 2;
             const int16_t r = 3;
 
-            const int16_t bw = labelW + triW + padX * 2 + 2;
+            const int16_t bw = labelW + (drawArrow ? triW : 0) + padX * 2 + 2;
             const int16_t bh = FONT_HEIGHT_SMALL + padY * 2;
 
             const int16_t bx = x + 2;
@@ -2124,10 +2132,12 @@ void CannedMessageModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *st
             int16_t ty = by + padY + (FONT_HEIGHT_SMALL / 2) - (triH / 2) - 1; // -1 for optical centering
 
             // ◄ Left-pointing triangle
-            display->fillTriangle(tx + triW, ty,       // top-right
-                                  tx, ty + triH / 2,   // left center
-                                  tx + triW, ty + triH // bottom-right
-            );
+            if (drawArrow) {
+                display->fillTriangle(tx + triW, ty,       // top-right
+                                      tx, ty + triH / 2,   // left center
+                                      tx + triW, ty + triH // bottom-right
+                );
+            }
         }
 #endif
         // Draw Free Text input with multi-emote support and proper line wrapping

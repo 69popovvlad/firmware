@@ -136,6 +136,27 @@ Physical `D0` becomes bit 7 and physical `D7` becomes bit 0 because the
 | SR1 D6 | SW11 | key 0 / space |
 | SR1 D7 | SW12 | shift |
 
+## Modifier chords
+
+`SHIFT` (SW12) does two different jobs, and which one depends on whether it is
+tapped or held:
+
+- **Tapped**, it cycles the case level for text entry.
+- **Held** while another key is pressed, it turns that key into a chord. The
+  case level is restored afterwards, so a chord never changes the case.
+
+| Chord | Action |
+| --- | --- |
+| `SHIFT` + `◄` | up (scroll node lists and message history) |
+| `SHIFT` + `►` | down |
+| `SHIFT` + `Backspace` | switch destination (tab) |
+| `SHIFT` + `0` | cycle input language |
+
+The board has no dedicated up/down keys. Option pickers and the node picker
+accept `◄` / `►` as up/down on their own, but node lists and the message
+history in `Screen::handleInputEvent` scroll on `UP`/`DOWN` only, which is what
+the arrow chords are for.
+
 ## Text input
 
 Text entry is T9 style: tap a key repeatedly to cycle through its characters.
@@ -154,6 +175,10 @@ Hold `SHIFT` (SW12) and tap the `0 / space` key (SW11) to switch the input
 language between latin and cyrillic. The badge changes to a cyrillic letter
 while cyrillic is active. The chord does not type a space and leaves the current
 shift level alone.
+
+Backspace deletes at every case level. It used to send tab on the upper case
+level, which left no way to delete while typing capitals; tab moved to the
+`SHIFT` + `Backspace` chord instead.
 
 Cyrillic layout, four taps per key:
 

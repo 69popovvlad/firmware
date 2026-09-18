@@ -167,9 +167,14 @@ int32_t SerialKeyboard::scanCustomChatter(uint8_t shiftRegister1, uint8_t shiftR
         quickPress = 0;
     }
 
+    // Tapping SHIFT cycles the case level. *Holding* SHIFT turns the next key into
+    // a modifier chord instead - scroll, tab, language - and the level is put back
+    // afterwards so the case never changes under the user.
+    const bool shiftHeld = (pressed & CC_KEY_SHIFT) != 0;
+
     // SHIFT + "0" cycles the input language. Checked before anything else so the
     // chord never types a space.
-    if ((pressed & CC_KEY_SHIFT) && (newlyPressed & CC_KEY_SPACE)) {
+    if (shiftHeld && (newlyPressed & CC_KEY_SPACE)) {
         language = (uint8_t)((language + 1) % KB_LANG_COUNT);
         shift = shiftBeforeModifier; // undo the level bump the SHIFT press itself made
         quickPress = 0;
@@ -184,19 +189,19 @@ int32_t SerialKeyboard::scanCustomChatter(uint8_t shiftRegister1, uint8_t shiftR
     e.source = this->_originName;
 
     // NAVIGATION / COMMAND KEYS
+    // The board has no dedicated up/down keys, and node lists and the message
+    // history scroll on UP/DOWN only, so SHIFT + arrow stands in for them.
     if (newlyPressed & CC_KEY_LEFT) {
-        if (shift > 0) {
-            e.inputEvent = INPUT_BROKER_ANYKEY;
-            e.kbchar = 0x09; // TAB
-            shift = 0;
+        if (shiftHeld) {
+            e.inputEvent = INPUT_BROKER_UP;
+            shift = shiftBeforeModifier;
         } else {
             e.inputEvent = INPUT_BROKER_LEFT;
         }
     } else if (newlyPressed & CC_KEY_RIGHT) {
-        if (shift > 0) {
-            e.inputEvent = INPUT_BROKER_ANYKEY;
-            e.kbchar = 0x09; // TAB
-            shift = 0;
+        if (shiftHeld) {
+            e.inputEvent = INPUT_BROKER_DOWN;
+            shift = shiftBeforeModifier;
         } else {
             e.inputEvent = INPUT_BROKER_RIGHT;
         }
@@ -228,14 +233,17 @@ int32_t SerialKeyboard::scanCustomChatter(uint8_t shiftRegister1, uint8_t shiftR
     } else if (newlyPressed & CC_KEY_SPACE) {
         keyPressed = 9;
     }
-    // BACKSPACE or TAB
+    // BACKSPACE, or TAB (switch destination) when SHIFT is held. Plain backspace
+    // now works at every case level, which it did not when TAB sat on the upper
+    // case level alone.
     else if (newlyPressed & CC_KEY_BACK) {
-        if (shift == 0 || shift == 2) {
-            e.inputEvent = INPUT_BROKER_BACK;
-            e.kbchar = 0x08;
-        } else {
+        if (shiftHeld) {
             e.inputEvent = INPUT_BROKER_ANYKEY;
             e.kbchar = 0x09; // TAB
+            shift = shiftBeforeModifier;
+        } else {
+            e.inputEvent = INPUT_BROKER_BACK;
+            e.kbchar = 0x08;
         }
     }
     // SHIFT
